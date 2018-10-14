@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
@@ -155,4 +157,47 @@ func (h *httpTransport) handleExDestroy(w http.ResponseWriter, r *http.Request, 
 		h.returnErr(w, err, http.StatusInternalServerError)
 		return
 	}
+}
+
+func (h *httpTransport) exIncrDecr(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	name := ps.ByName("name")
+	key := ps.ByName("key")
+	sdelta := ps.ByName("delta")
+	delta, err := strconv.Atoi(sdelta)
+	if err != nil {
+		h.returnErr(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	dm := h.db.NewDMap(name)
+	var value int
+	if strings.HasPrefix(r.URL.Path, "/ex/incr") {
+		value, err = dm.Incr(key, delta)
+	} else {
+		value, err = dm.Decr(key, delta)
+	}
+	if err != nil {
+		h.returnErr(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	data, err := h.db.serializer.Marshal(value)
+	if err != nil {
+		h.returnErr(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = io.Copy(w, bytes.NewReader(data))
+	if err != nil {
+		h.returnErr(w, err, http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *httpTransport) handleExIncr(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	h.exIncrDecr(w, r, ps)
+}
+
+func (h *httpTransport) handleExDecr(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	h.exIncrDecr(w, r, ps)
 }

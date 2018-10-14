@@ -19,6 +19,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -315,4 +316,116 @@ func TestClient_Destroy(t *testing.T) {
 	if err != olricdb.ErrKeyNotFound {
 		t.Fatalf("Expected ErrKeyNotFound. Got: %v", err)
 	}
+}
+
+func TestClient_Incr(t *testing.T) {
+	db, addr, done, err := newOlricDB()
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		serr := db.Shutdown(ctx)
+		if serr != nil {
+			log.Printf("[WARN] OlricDB Shutdown returned an error: %v", serr)
+		}
+		<-done
+	}()
+
+	servers := []string{"http://" + addr}
+	c, err := New(servers, nil, nil)
+	if err != nil {
+		t.Fatalf("Expected nil. Got: %v", err)
+	}
+
+	key := "incr"
+	dname := "atomic_test"
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	incr := func() {
+		defer wg.Done()
+		<-start
+
+		_, ierr := c.Incr(dname, key, 1)
+		if ierr != nil {
+			log.Printf("[ERROR] Failed to call Incr: %v", ierr)
+			return
+		}
+	}
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go incr()
+	}
+
+	close(start)
+	wg.Wait()
+
+	res, err := c.Incr(dname, key, 1)
+	if err != nil {
+		t.Fatalf("Expected nil. Got: %v", err)
+	}
+
+	if res != 101 {
+		t.Fatalf("Expected 101. Got: %v", res)
+	}
+
+}
+
+func TestClient_Decr(t *testing.T) {
+	db, addr, done, err := newOlricDB()
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		serr := db.Shutdown(ctx)
+		if serr != nil {
+			log.Printf("[WARN] OlricDB Shutdown returned an error: %v", serr)
+		}
+		<-done
+	}()
+
+	servers := []string{"http://" + addr}
+	c, err := New(servers, nil, nil)
+	if err != nil {
+		t.Fatalf("Expected nil. Got: %v", err)
+	}
+
+	key := "incr"
+	dname := "atomic_test"
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	incr := func() {
+		defer wg.Done()
+		<-start
+
+		_, ierr := c.Decr(dname, key, 1)
+		if ierr != nil {
+			log.Printf("[ERROR] Failed to call Incr: %v", ierr)
+			return
+		}
+	}
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go incr()
+	}
+
+	close(start)
+	wg.Wait()
+
+	res, err := c.Decr(dname, key, 1)
+	if err != nil {
+		t.Fatalf("Expected nil. Got: %v", err)
+	}
+
+	if res != -101 {
+		t.Fatalf("Expected -101. Got: %v", res)
+	}
+
 }
