@@ -121,8 +121,7 @@ func (h *httpTransport) handleExLockWithTimeout(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	dm := h.db.NewDMap(name)
-	err = dm.LockWithTimeout(key, timeout)
+	err = h.db.lockWithTimeout(name, key, timeout)
 	if err == ErrKeyNotFound {
 		h.returnErr(w, err, http.StatusNotFound)
 		return
@@ -137,8 +136,7 @@ func (h *httpTransport) handleExUnlock(w http.ResponseWriter, r *http.Request, p
 	name := ps.ByName("name")
 	key := ps.ByName("key")
 
-	dm := h.db.NewDMap(name)
-	err := dm.Unlock(key)
+	err := h.db.unlock(name, key)
 	if err == ErrNoSuchLock {
 		h.returnErr(w, err, http.StatusNotFound)
 		return
@@ -169,12 +167,11 @@ func (h *httpTransport) exIncrDecr(w http.ResponseWriter, r *http.Request, ps ht
 		return
 	}
 
-	dm := h.db.NewDMap(name)
 	var value int
 	if strings.HasPrefix(r.URL.Path, "/ex/incr") {
-		value, err = dm.Incr(key, delta)
+		value, err = h.db.atomicIncrDecr(name, key, "incr", delta)
 	} else {
-		value, err = dm.Decr(key, delta)
+		value, err = h.db.atomicIncrDecr(name, key, "decr", delta)
 	}
 	if err != nil {
 		h.returnErr(w, err, http.StatusInternalServerError)

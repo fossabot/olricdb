@@ -21,6 +21,17 @@ import (
 )
 
 func (db *OlricDB) atomicIncrDecr(name, key, opr string, delta int) (int, error) {
+	err := db.lockWithTimeout(name, key, time.Minute)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		err = db.unlock(name, key)
+		if err != nil {
+			db.logger.Printf("[ERROR] Failed to release the lock for key: %s", key)
+		}
+	}()
+
 	rawval, err := db.get(name, key)
 	if err != nil && err != ErrKeyNotFound {
 		return 0, err
@@ -61,30 +72,45 @@ func (db *OlricDB) atomicIncrDecr(name, key, opr string, delta int) (int, error)
 
 // Incr atomically increments key by delta. The return value is the new value after being incremented or an error.
 func (dm *DMap) Incr(key string, delta int) (int, error) {
-	err := dm.LockWithTimeout(key, time.Minute)
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		err = dm.Unlock(key)
-		if err != nil {
-			dm.db.logger.Printf("[ERROR] Failed to release the lock for key: %s", key)
-		}
-	}()
 	return dm.db.atomicIncrDecr(dm.name, key, "incr", delta)
 }
 
 // Decr atomically decrements key by delta. The return value is the new value after being decremented or an error.
 func (dm *DMap) Decr(key string, delta int) (int, error) {
-	err := dm.LockWithTimeout(key, time.Minute)
+	return dm.db.atomicIncrDecr(dm.name, key, "decr", delta)
+}
+
+func (db *OlricDB) getSet(name, key string, value interface{}) (interface{}, error) {
+	err := db.lockWithTimeout(name, key, time.Minute)
 	if err != nil {
 		return 0, err
 	}
 	defer func() {
-		err = dm.Unlock(key)
+		err = db.unlock(name, key)
 		if err != nil {
-			dm.db.logger.Printf("[ERROR] Failed to release the lock for key: %s", key)
+			db.logger.Printf("[ERROR] Failed to release the lock for key: %s", key)
 		}
 	}()
-	return dm.db.atomicIncrDecr(dm.name, key, "decr", delta)
+
+	rawval, err := db.get(name, key)
+	if err != nil && err != ErrKeyNotFound {
+		return 0, err
+	}
+
+	var oldval interface{}
+	if err == nil || err != ErrKeyNotFound {
+		if err = db.serializer.Unmarshal(rawval, &oldval); err != nil {
+			return 0, err
+		}
+	}
+	err = db.put(name, key, value, nilTimeout)
+	if err != nil {
+		return 0, err
+	}
+	return oldval, nil
+}
+
+// GetSet atomically sets key to value and returns the old value stored at key.
+func (dm *DMap) GetSet(key string, value interface{}) (interface{}, error) {
+	return dm.db.getSet(dm.name, key, value)
 }

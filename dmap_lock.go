@@ -119,6 +119,17 @@ func (db *OlricDB) lockKey(hkey uint64, name, key string, timeout time.Duration)
 	return nil
 }
 
+func (db *OlricDB) lockWithTimeout(name, key string, timeout time.Duration) error {
+	member, hkey, err := db.locateKey(name, key)
+	if err != nil {
+		return err
+	}
+	if !hostCmp(member, db.this) {
+		return db.transport.lock(member, name, key, timeout)
+	}
+	return db.lockKey(hkey, name, key, timeout)
+}
+
 // LockWithTimeout sets a lock for the given key. If the lock is still unreleased the end of given period of time,
 // it automatically releases the lock. Acquired lock is only for the key in this map.
 //
@@ -127,14 +138,7 @@ func (db *OlricDB) lockKey(hkey uint64, name, key string, timeout time.Duration)
 //
 // You should know that the locks are approximate, and only to be used for non-critical purposes.
 func (dm *DMap) LockWithTimeout(key string, timeout time.Duration) error {
-	member, hkey, err := dm.db.locateKey(dm.name, key)
-	if err != nil {
-		return err
-	}
-	if !hostCmp(member, dm.db.this) {
-		return dm.db.transport.lock(member, dm.name, key, timeout)
-	}
-	return dm.db.lockKey(hkey, dm.name, key, timeout)
+	return dm.db.lockWithTimeout(dm.name, key, timeout)
 }
 
 func (db *OlricDB) unlockKey(hkey uint64, name, key string) error {
@@ -155,19 +159,23 @@ func (db *OlricDB) unlockKey(hkey uint64, name, key string) error {
 	return dmp.locker.unlock(key)
 }
 
-// Unlock releases an acquired lock for the given key. It returns ErrNoSuchLock if there is no lock for the given key.
-func (dm *DMap) Unlock(key string) error {
-	<-dm.db.bctx.Done()
-	if dm.db.bctx.Err() == context.DeadlineExceeded {
+func (db *OlricDB) unlock(name, key string) error {
+	<-db.bctx.Done()
+	if db.bctx.Err() == context.DeadlineExceeded {
 		return ErrOperationTimeout
 	}
 
-	member, hkey, err := dm.db.locateKey(dm.name, key)
+	member, hkey, err := db.locateKey(name, key)
 	if err != nil {
 		return err
 	}
-	if !hostCmp(member, dm.db.this) {
-		return dm.db.transport.unlock(member, dm.name, key)
+	if !hostCmp(member, db.this) {
+		return db.transport.unlock(member, name, key)
 	}
-	return dm.db.unlockKey(hkey, dm.name, key)
+	return db.unlockKey(hkey, name, key)
+}
+
+// Unlock releases an acquired lock for the given key. It returns ErrNoSuchLock if there is no lock for the given key.
+func (dm *DMap) Unlock(key string) error {
+	return dm.db.unlock(dm.name, key)
 }
