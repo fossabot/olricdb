@@ -111,15 +111,7 @@ func (db *OlricDB) lockKey(hkey uint64, name, key string, timeout time.Duration)
 	}
 
 	// This node owns the key/lock. Try to acquire it.
-	dmp.RLock()
-	_, ok := dmp.d[hkey]
-	if !ok {
-		dmp.RUnlock()
-		return ErrKeyNotFound
-	}
-	dmp.RUnlock()
 	dmp.locker.lock(key)
-
 	// Wait until the timeout is exceeded and background and release the key if
 	// it's still locked.
 	db.wg.Add(1)
@@ -128,8 +120,7 @@ func (db *OlricDB) lockKey(hkey uint64, name, key string, timeout time.Duration)
 }
 
 // LockWithTimeout sets a lock for the given key. If the lock is still unreleased the end of given period of time,
-// it automatically releases the lock. Acquired lock is only for the key in this map. Please note that, before setting
-// a lock for a key, you should set the key with Put method. Otherwise it returns ErrKeyNotFound error.
+// it automatically releases the lock. Acquired lock is only for the key in this map.
 //
 // It returns immediately if it acquires the lock for the given key. Otherwise, it waits until timeout.
 // The timeout is determined by http.Client which can be configured via Config structure.
