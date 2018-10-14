@@ -16,6 +16,7 @@ package olricdb
 
 import (
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -33,7 +34,14 @@ func (db *OlricDB) atomicIncrDecr(name, key, opr string, delta int) (int, error)
 		if err = db.serializer.Unmarshal(rawval, &value); err != nil {
 			return 0, err
 		}
-		curval = value.(int)
+		// switch is faster than reflect.
+		switch value.(type) {
+		case int:
+			curval = value.(int)
+		default:
+			return 0, fmt.Errorf("mismatched type: %v", reflect.TypeOf(value).Name())
+		}
+
 	}
 
 	if opr == "incr" {
