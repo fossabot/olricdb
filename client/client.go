@@ -301,3 +301,34 @@ func (c *Client) Decr(name, key string, delta int) (int, error) {
 	}
 	return value.(int), err
 }
+
+// GetPut atomically sets key to value and returns the old value stored at key.
+func (c *Client) GetPut(name, key string, value interface{}) (interface{}, error) {
+	scheme, server, err := c.pickHost()
+	if err != nil {
+		return nil, err
+	}
+	target := url.URL{
+		Scheme: scheme,
+		Host:   server,
+		Path:   path.Join("/ex/getput/", name, key),
+	}
+	data, err := c.serializer.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	body := bytes.NewReader(data)
+	raw, err := c.doRequest(http.MethodPut, target, body)
+	if err != nil {
+		return nil, err
+	}
+
+	var oldval interface{}
+	if len(raw) != 0 {
+		err = c.serializer.Unmarshal(raw, &oldval)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return oldval, nil
+}

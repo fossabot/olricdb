@@ -20,6 +20,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -406,7 +407,7 @@ func TestClient_Decr(t *testing.T) {
 
 		_, ierr := c.Decr(dname, key, 1)
 		if ierr != nil {
-			log.Printf("[ERROR] Failed to call Incr: %v", ierr)
+			log.Printf("[ERROR] Failed to call Decr: %v", ierr)
 			return
 		}
 	}
@@ -428,4 +429,66 @@ func TestClient_Decr(t *testing.T) {
 		t.Fatalf("Expected -101. Got: %v", res)
 	}
 
+}
+
+func TestClient_GetPut(t *testing.T) {
+	db, addr, done, err := newOlricDB()
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		serr := db.Shutdown(ctx)
+		if serr != nil {
+			log.Printf("[WARN] OlricDB Shutdown returned an error: %v", serr)
+		}
+		<-done
+	}()
+
+	servers := []string{"http://" + addr}
+	c, err := New(servers, nil, nil)
+	if err != nil {
+		t.Fatalf("Expected nil. Got: %v", err)
+	}
+
+	key := "getput"
+	dname := "atomic_test"
+	var total int64
+	var wg sync.WaitGroup
+	var final int64
+	start := make(chan struct{})
+
+	getput := func(i int) {
+		defer wg.Done()
+		<-start
+
+		oldval, ierr := c.GetPut(dname, key, i)
+		if ierr != nil {
+			log.Printf("[ERROR] Failed to call GetPut: %v", ierr)
+			return
+		}
+		if oldval != nil {
+			atomic.AddInt64(&total, int64(oldval.(int)))
+		}
+	}
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go getput(i)
+		final += int64(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	last, err := c.Get(dname, key)
+	if err != nil {
+		t.Fatalf("Expected nil. Got: %v", err)
+	}
+
+	atomic.AddInt64(&total, int64(last.(int)))
+	if atomic.LoadInt64(&total) != final {
+		t.Fatalf("Expected %d. Got: %d", final, atomic.LoadInt64(&total))
+	}
 }

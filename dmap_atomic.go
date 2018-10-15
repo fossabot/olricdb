@@ -63,7 +63,11 @@ func (db *OlricDB) atomicIncrDecr(name, key, opr string, delta int) (int, error)
 		return 0, fmt.Errorf("invalid operation")
 	}
 
-	err = db.put(name, key, newval, nilTimeout)
+	nval, err := db.serializer.Marshal(newval)
+	if err != nil {
+		return 0, err
+	}
+	err = db.put(name, key, nval, nilTimeout)
 	if err != nil {
 		return 0, err
 	}
@@ -80,10 +84,10 @@ func (dm *DMap) Decr(key string, delta int) (int, error) {
 	return dm.db.atomicIncrDecr(dm.name, key, "decr", delta)
 }
 
-func (db *OlricDB) getSet(name, key string, value interface{}) (interface{}, error) {
+func (db *OlricDB) getPut(name, key string, value []byte) ([]byte, error) {
 	err := db.lockWithTimeout(name, key, time.Minute)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer func() {
 		err = db.unlock(name, key)
@@ -94,23 +98,36 @@ func (db *OlricDB) getSet(name, key string, value interface{}) (interface{}, err
 
 	rawval, err := db.get(name, key)
 	if err != nil && err != ErrKeyNotFound {
-		return 0, err
+		return nil, err
+	}
+
+	err = db.put(name, key, value, nilTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return rawval, nil
+}
+
+// GetPut atomically sets key to value and returns the old value stored at key.
+func (dm *DMap) GetPut(key string, value interface{}) (interface{}, error) {
+	if value == nil {
+		value = struct{}{}
+	}
+	val, err := dm.db.serializer.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	rawval, err := dm.db.getPut(dm.name, key, val)
+	if err != nil {
+		return nil, err
 	}
 
 	var oldval interface{}
-	if err == nil || err != ErrKeyNotFound {
-		if err = db.serializer.Unmarshal(rawval, &oldval); err != nil {
-			return 0, err
+	if rawval != nil {
+		if err = dm.db.serializer.Unmarshal(rawval, &oldval); err != nil {
+			return nil, err
 		}
 	}
-	err = db.put(name, key, value, nilTimeout)
-	if err != nil {
-		return 0, err
-	}
 	return oldval, nil
-}
-
-// GetSet atomically sets key to value and returns the old value stored at key.
-func (dm *DMap) GetSet(key string, value interface{}) (interface{}, error) {
-	return dm.db.getSet(dm.name, key, value)
 }

@@ -198,3 +198,26 @@ func (h *httpTransport) handleExIncr(w http.ResponseWriter, r *http.Request, ps 
 func (h *httpTransport) handleExDecr(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	h.exIncrDecr(w, r, ps)
 }
+
+func (h *httpTransport) handleExGetPut(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	value, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		h.returnErr(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	name := ps.ByName("name")
+	key := ps.ByName("key")
+	oldval, err := h.db.getPut(name, key, value)
+	if err != nil {
+		h.returnErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	if oldval != nil {
+		_, err = io.Copy(w, bytes.NewReader(oldval))
+		if err != nil {
+			h.returnErr(w, err, http.StatusInternalServerError)
+			return
+		}
+	}
+}
