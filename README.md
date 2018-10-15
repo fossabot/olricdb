@@ -25,7 +25,7 @@ This project is a work in progress. The implementation is incomplete. The docume
     * [Incr](#incr)
     * [Decr](#decr)
     * [GetPut](#getput)
-* [HTTP-API](#http-api)
+* [HTTP API](#http-api)
 * [Golang Client](#golang-client)
 * [Standalone Server](#standalone-server)
 * [Command Line Interface](#command-line-interface)
