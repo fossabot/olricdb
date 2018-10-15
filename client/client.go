@@ -294,6 +294,9 @@ func (c *Client) Decr(name, key string, delta int) (int, error) {
 		Path:   path.Join("/ex/decr/", name, key, strconv.Itoa(delta)),
 	}
 	res, err := c.doRequest(http.MethodPut, target, nil)
+	if err != nil {
+		return 0, err
+	}
 	var value interface{}
 	err = c.serializer.Unmarshal(res, &value)
 	if err != nil {

@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/*Package cli is the OlricDB command line interface, a simple program that allows
+to send commands to OlricDB, and read the replies sent by the server, directly from
+the terminal.*/
 package cli
 
 import (
@@ -78,7 +81,7 @@ func New(uri string, insecureSkipVerify bool, serializer, timeouts string) (*CLI
 	// Default serializer is Gob serializer, just set nil or use gob keyword to use it.
 	var s olricdb.Serializer
 	if serializer == "json" {
-		s = olricdb.NewJsonSerializer()
+		s = olricdb.NewJSONSerializer()
 	} else if serializer == "msgpack" {
 		s = olricdb.NewMsgpackSerializer()
 	} else if serializer == "gob" {
