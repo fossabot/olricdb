@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/buraksezer/consistent"
+	"github.com/buraksezer/olricdb/internal/transport"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/logutils"
 	"github.com/hashicorp/memberlist"
@@ -50,7 +51,7 @@ type OlricDB struct {
 	wg         sync.WaitGroup
 	fsckMtx    sync.Mutex
 	routingMtx sync.Mutex
-
+	server     *transport.Server
 	// To control non-bootstrapped OlricDB instance
 	bctx    context.Context
 	bcancel context.CancelFunc
@@ -152,6 +153,7 @@ func New(c *Config) (*OlricDB, error) {
 		backups:    make(map[uint64]*partition),
 		bctx:       bctx,
 		bcancel:    bcancel,
+		server:     transport.NewServer("localhost:3422", c.Logger),
 	}
 	db.transport.db = db
 
@@ -219,7 +221,17 @@ func (db *OlricDB) Start() error {
 	db.wg.Add(2)
 	go db.updateRoutingPeriodically()
 	go db.evictKeysAtBackground()
+
+	// TODO: Temporary hack for TCP server development.
+	go db.listenAndServe()
 	return <-errCh
+}
+
+// TODO: This is a temporary solution for easy development.
+func (db *OlricDB) listenAndServe() {
+	if err := db.server.ListenAndServe(); err != nil {
+		db.logger.Printf("[ERROR] Failed to run ListenAndServe: %v", err)
+	}
 }
 
 // Shutdown stops background servers and leaves the cluster.
@@ -259,6 +271,11 @@ func (db *OlricDB) Shutdown(ctx context.Context) error {
 			result = multierror.Append(result, err)
 		}
 	}
+
+	if err := db.server.Shutdown(); err != nil {
+		result = multierror.Append(result, err)
+	}
+
 	// The GC will flush all the data.
 	db.partitions = nil
 	db.backups = nil

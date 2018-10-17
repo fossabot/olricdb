@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"golang.org/x/net/http2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/buraksezer/olricdb"
 	"github.com/hashicorp/logutils"
@@ -40,6 +41,7 @@ type Olricd struct {
 	logger *log.Logger
 	config *olricdb.Config
 	db     *olricdb.OlricDB
+	errgr  errgroup.Group
 }
 
 func newHTTPClient(c *Config) (*http.Client, error) {
@@ -147,7 +149,15 @@ func (s *Olricd) waitForInterrupt() {
 	signal.Notify(shutDownChan, syscall.SIGTERM, syscall.SIGINT)
 	ch := <-shutDownChan
 	s.logger.Printf("[INFO] Signal catched: %s", ch.String())
-	s.Shutdown()
+	s.errgr.Go(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.db.Shutdown(ctx); err != nil {
+			s.logger.Printf("[ERROR] Failed to shutdown OlricDB: %v", err)
+			return err
+		}
+		return nil
+	})
 }
 
 // Start starts a new olricd server instance and blocks until the server is closed.
@@ -161,15 +171,12 @@ func (s *Olricd) Start() error {
 	}
 	s.db = db
 	s.logger.Printf("[INFO] olricd (pid: %d) has been started on %s", os.Getpid(), s.config.Name)
-	return s.db.Start()
-}
-
-// Shutdown calls olricdb.Shutdown for graceful shutdown.
-func (s *Olricd) Shutdown() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err := s.db.Shutdown(ctx)
-	if err != nil {
-		s.logger.Printf("[ERROR] Failed to shutdown OlricDB: %v", err)
-	}
+	s.errgr.Go(func() error {
+		if err = s.db.Start(); err != nil {
+			s.logger.Print("[ERROR] Failed to run OlricDB: %v", err)
+			return err
+		}
+		return nil
+	})
+	return s.errgr.Wait()
 }
