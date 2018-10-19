@@ -26,6 +26,14 @@
   revision = "1fd2e52820658d2d76672f1d93da56f5cbea39ba"
 
 [[projects]]
+  digest = "1:ed2c2283337727ed96e47dc5081ddfa5ffbff718d30a87e68059e633a426e0de"
+  name = "github.com/buraksezer/pool"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "830a0f4759206ca695bc91927303867a1ba951bc"
+  version = "v3.0.0"
+
+[[projects]]
   digest = "1:4c69f3f6b7b2f6481f858db3cb7a84c7a5958287be33ec05ce4814ea49ef555d"
   name = "github.com/cespare/xxhash"
   packages = ["."]
@@ -128,6 +136,14 @@
   pruneopts = "UT"
   revision = "5a2b9fab83ff0f8bfc99684bd5f43a37abe560f1"
   version = "v1.0.8"
+
+[[projects]]
+  digest = "1:40e195917a951a8bf867cd05de2a46aaf1806c50cf92eebf4c16f78cd196f747"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
+  version = "v0.8.0"
 
 [[projects]]
   branch = "master"
@@ -233,12 +249,14 @@
   input-imports = [
     "github.com/BurntSushi/toml",
     "github.com/buraksezer/consistent",
+    "github.com/buraksezer/pool",
     "github.com/cespare/xxhash",
     "github.com/chzyer/readline",
     "github.com/hashicorp/go-multierror",
     "github.com/hashicorp/logutils",
     "github.com/hashicorp/memberlist",
     "github.com/julienschmidt/httprouter",
+    "github.com/pkg/errors",
     "github.com/vmihailenco/msgpack",
     "golang.org/x/net/http2",
     "golang.org/x/sync/errgroup",
