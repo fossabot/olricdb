@@ -15,14 +15,16 @@
 package transport
 
 import (
-	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"sync"
 
 	"github.com/buraksezer/olricdb/protocol"
+	"github.com/pkg/errors"
 )
 
 type endpoints struct {
@@ -69,7 +71,6 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	done := make(chan struct{})
 	defer close(done)
-
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -83,48 +84,47 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 	}()
 
-	writeErr := func(buf *bytes.Buffer, opcode protocol.OpCode, status protocol.StatusCode, err interface{}) error {
-		var nm protocol.Message
-		switch err.(type) {
-		case string:
-			nm.Value = []byte(err.(string))
-		case error:
-			nm.Value = []byte(err.(error).Error())
-		}
-		nm.Magic = protocol.MagicRes
-		nm.Op = opcode
-		nm.Status = status
-		nm.BodyLen = uint32(len(nm.Value))
-		return nm.Write(conn, buf)
-	}
 	header := make([]byte, protocol.HeaderSize)
 	for {
-		var m protocol.Message
-		err := m.Read(conn, header)
-		if err != nil {
-			s.logger.Printf("[DEBUG] Failed to parse message: %v", err)
-			return
-		}
-
-		buf := s.bufpool.Get()
-		e, ok := s.endpoints.m[m.Op]
-		if !ok {
-			if err = writeErr(buf, m.Op, protocol.StatusUnknownEndpoint, ""); err != nil {
-				s.logger.Printf("[DEBUG] Failed to return error message: %v", err)
-				s.bufpool.Put(buf)
-				return
-			}
-			s.bufpool.Put(buf)
-			continue
-		}
-		resp := e(&m)
-		err = resp.Write(conn, buf)
-		s.bufpool.Put(buf)
-		if err != nil {
-			s.logger.Printf("[DEBUG] Failed to write message %v", err)
+		if err := s.processMessage(conn, header); err != nil {
+			s.logger.Printf("[ERROR] Failed to process message: %v", err)
 			return
 		}
 	}
+}
+
+func (s *Server) processMessage(conn net.Conn, header []byte) error {
+	buf := s.bufpool.Get()
+	defer s.bufpool.Put(buf)
+
+	var m protocol.Message
+	err := m.Read(conn, header)
+	if err == io.EOF {
+		// the client just closed the socket
+		return nil
+	}
+	if err != nil {
+		errMsg := m.Error(protocol.StatusUnknownEndpoint, "")
+		if werr := errMsg.Write(conn, buf); werr != nil {
+			return errors.WithMessage(werr, "failed to write error message")
+		}
+		return errors.WithMessage(err, "failed to read message")
+	}
+
+	e, ok := s.endpoints.m[m.Op]
+	if !ok {
+		errMsg := m.Error(protocol.StatusUnknownEndpoint, "")
+		if werr := errMsg.Write(conn, buf); werr != nil {
+			return errors.WithMessage(werr, "failed to write error message")
+		}
+		return fmt.Errorf("unknown operation: %d", m.Op)
+	}
+	resp := e(&m)
+	err = resp.Write(conn, buf)
+	if err != nil {
+		return errors.WithMessage(err, "failed to write response")
+	}
+	return nil
 }
 
 func (s *Server) handleConns() {

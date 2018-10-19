@@ -49,7 +49,8 @@ const (
 )
 
 var (
-	ErrUnknownEndpoint = errors.New("unknown endpoint")
+	ErrUnknownEndpoint     = errors.New("unknown endpoint")
+	ErrInternalServerError = errors.New("internal server error")
 )
 
 const HeaderSize int = 12
@@ -157,6 +158,8 @@ func CheckError(resp *Message) error {
 		return nil
 	case resp.Status == StatusUnknownEndpoint:
 		return ErrUnknownEndpoint
+	case resp.Status == StatusInternalServerError:
+		return ErrInternalServerError
 	}
 	return fmt.Errorf("Unknown status code: %d", resp.Status)
 }
