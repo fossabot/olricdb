@@ -83,10 +83,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.logger.Printf("[DEBUG] Failed to close TCP connection: %v", err)
 		}
 	}()
-
+	// TODO: Add Deadline to close idle sockets
 	header := make([]byte, protocol.HeaderSize)
 	for {
-		if err := s.processMessage(conn, header); err != nil {
+		err := s.processMessage(conn, header)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
 			s.logger.Printf("[ERROR] Failed to process message: %v", err)
 			return
 		}
@@ -100,8 +104,7 @@ func (s *Server) processMessage(conn net.Conn, header []byte) error {
 	var m protocol.Message
 	err := m.Read(conn, header)
 	if err == io.EOF {
-		// the client just closed the socket
-		return nil
+		return err
 	}
 	if err != nil {
 		errMsg := m.Error(protocol.StatusUnknownEndpoint, "")

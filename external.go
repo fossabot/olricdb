@@ -29,19 +29,16 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-func (db *OlricDB) exPutEndpoint(m *protocol.Message) *protocol.Message {
-	_, hkey, err := db.locateKey(m.DMap, string(m.Key))
+func (db *OlricDB) exPutEndpoint(req *protocol.Message) *protocol.Message {
+	err := db.put(req.DMap, string(req.Key), req.Value, nilTimeout)
 	if err != nil {
-		return m.Error(protocol.StatusInternalServerError, err)
+		return req.Error(protocol.StatusInternalServerError, err)
 	}
-
-	err = db.putKeyVal(hkey, m.DMap, m.Value, nilTimeout)
-	if err != nil {
-		return m.Error(protocol.StatusInternalServerError, err)
-	}
-	// Everything is OK.
-	m.Status = protocol.StatusOK
-	return m
+	var resp protocol.Message
+	resp.Magic = protocol.MagicRes
+	resp.Op = req.Op
+	resp.Status = protocol.StatusOK
+	return &resp
 }
 
 func (h *httpTransport) handleExGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
