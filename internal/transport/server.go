@@ -16,7 +16,6 @@ package transport
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -27,22 +26,22 @@ import (
 	"github.com/pkg/errors"
 )
 
-type endpoints struct {
-	m map[protocol.OpCode]protocol.Endpoint
+type operations struct {
+	m map[protocol.OpCode]protocol.Operation
 }
 
 // Server implements a TCP server.
 type Server struct {
-	addr      string
-	bufpool   *BufPool
-	endpoints endpoints
-	logger    *log.Logger
-	wg        sync.WaitGroup
-	listener  *net.TCPListener
-	connCh    chan net.Conn
-	StartCh   chan struct{}
-	ctx       context.Context
-	cancel    context.CancelFunc
+	addr       string
+	bufpool    *BufPool
+	operations operations
+	logger     *log.Logger
+	wg         sync.WaitGroup
+	listener   *net.TCPListener
+	connCh     chan net.Conn
+	StartCh    chan struct{}
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 func NewServer(addr string, logger *log.Logger) *Server {
@@ -51,19 +50,43 @@ func NewServer(addr string, logger *log.Logger) *Server {
 		logger = log.New(os.Stderr, "", log.LstdFlags)
 	}
 	return &Server{
-		endpoints: endpoints{m: make(map[protocol.OpCode]protocol.Endpoint)},
-		addr:      addr,
-		bufpool:   NewBufPool(),
-		logger:    logger,
-		connCh:    make(chan net.Conn),
-		StartCh:   make(chan struct{}),
-		ctx:       ctx,
-		cancel:    cancel,
+		operations: operations{m: make(map[protocol.OpCode]protocol.Operation)},
+		addr:       addr,
+		bufpool:    NewBufPool(),
+		logger:     logger,
+		connCh:     make(chan net.Conn),
+		StartCh:    make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
-func (s *Server) RegisterEndpoint(op protocol.OpCode, e protocol.Endpoint) {
-	s.endpoints.m[op] = e
+func (s *Server) RegisterOperation(op protocol.OpCode, e protocol.Operation) {
+	s.operations.m[op] = e
+}
+
+func (s *Server) processMessage(m *protocol.Message, conn net.Conn, header []byte) error {
+	buf := s.bufpool.Get()
+	defer s.bufpool.Put(buf)
+
+	err := m.Read(conn, header)
+	if err == io.EOF || err == protocol.ErrConnClosed {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+
+	opr, ok := s.operations.m[m.Op]
+	if !ok {
+		return protocol.ErrUnknownOperation
+	}
+	resp := opr(m)
+	err = resp.Write(conn, buf)
+	if err == protocol.ErrConnClosed {
+		return err
+	}
+	return errors.WithMessage(err, "failed to write response")
 }
 
 func (s *Server) handleConn(conn net.Conn) {
@@ -86,48 +109,31 @@ func (s *Server) handleConn(conn net.Conn) {
 	// TODO: Add Deadline to close idle sockets
 	header := make([]byte, protocol.HeaderSize)
 	for {
-		err := s.processMessage(conn, header)
-		if err == io.EOF {
+		var req protocol.Message
+		err := s.processMessage(&req, conn, header)
+		if err == nil {
+			continue
+		}
+		if err == io.EOF || err == protocol.ErrConnClosed {
 			break
 		}
-		if err != nil {
-			s.logger.Printf("[ERROR] Failed to process message: %v", err)
-			return
-		}
-	}
-}
 
-func (s *Server) processMessage(conn net.Conn, header []byte) error {
-	buf := s.bufpool.Get()
-	defer s.bufpool.Put(buf)
-
-	var m protocol.Message
-	err := m.Read(conn, header)
-	if err == io.EOF {
-		return err
-	}
-	if err != nil {
-		errMsg := m.Error(protocol.StatusUnknownEndpoint, "")
-		if werr := errMsg.Write(conn, buf); werr != nil {
-			return errors.WithMessage(werr, "failed to write error message")
+		var status protocol.StatusCode
+		if err == protocol.ErrUnknownOperation {
+			status = protocol.StatusUnknownOperation
+		} else {
+			status = protocol.StatusInternalServerError
 		}
-		return errors.WithMessage(err, "failed to read message")
-	}
 
-	e, ok := s.endpoints.m[m.Op]
-	if !ok {
-		errMsg := m.Error(protocol.StatusUnknownEndpoint, "")
-		if werr := errMsg.Write(conn, buf); werr != nil {
-			return errors.WithMessage(werr, "failed to write error message")
+		resp := req.Error(status, err)
+		buf := s.bufpool.Get()
+		defer s.bufpool.Put(buf)
+		err = resp.Write(conn, buf)
+		if err != nil && err != protocol.ErrConnClosed {
+			s.logger.Printf("[ERROR] Failed to return error message: %v", err)
 		}
-		return fmt.Errorf("unknown operation: %d", m.Op)
+		break
 	}
-	resp := e(&m)
-	err = resp.Write(conn, buf)
-	if err != nil {
-		return errors.WithMessage(err, "failed to write response")
-	}
-	return nil
 }
 
 func (s *Server) handleConns() {
@@ -174,7 +180,11 @@ func (s *Server) ListenAndServe() error {
 
 func (s *Server) Shutdown() error {
 	s.cancel()
-	err := s.listener.Close()
-	s.wg.Wait()
-	return err
+	// TODO: Temporary hack to fix tests, remove this after removing HTTP
+	if s.listener != nil {
+		err := s.listener.Close()
+		s.wg.Wait()
+		return err
+	}
+	return nil
 }

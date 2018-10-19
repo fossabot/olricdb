@@ -20,9 +20,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 )
 
-type Endpoint func(in *Message) (out *Message)
+type Operation func(in *Message) (out *Message)
 
 // Magic Codes
 type MagicCode uint8
@@ -44,12 +45,12 @@ type StatusCode uint8
 // error codes
 const (
 	StatusOK = StatusCode(iota)
-	StatusUnknownEndpoint
+	StatusUnknownOperation
 	StatusInternalServerError
 )
 
 var (
-	ErrUnknownEndpoint     = errors.New("unknown endpoint")
+	ErrUnknownOperation    = errors.New("unknown operation")
 	ErrInternalServerError = errors.New("internal server error")
 )
 
@@ -74,10 +75,22 @@ type Message struct {
 	Value  []byte        // [x..y] Value (as needed, length in Header)
 }
 
+var ErrConnClosed = errors.New("connection closed")
+
+func filterNetworkErrors(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "use of closed network connection") {
+		return ErrConnClosed
+	}
+	return err
+}
+
 func (m *Message) Read(conn net.Conn, b []byte) error {
 	_, err := conn.Read(b)
 	if err != nil {
-		return err
+		return filterNetworkErrors(err)
 	}
 	err = binary.Read(bytes.NewReader(b), binary.BigEndian, &m.Header)
 	if err != nil {
@@ -92,7 +105,7 @@ func (m *Message) Read(conn net.Conn, b []byte) error {
 	bd := make([]byte, m.BodyLen)
 	_, err = conn.Read(bd)
 	if err != nil {
-		return err
+		return filterNetworkErrors(err)
 	}
 
 	buf := bytes.NewBuffer(bd)
@@ -130,7 +143,7 @@ func (m *Message) Write(conn net.Conn, buf *bytes.Buffer) error {
 	}
 
 	_, err = buf.WriteTo(conn)
-	return err
+	return filterNetworkErrors(err)
 }
 
 // SizeOfExtras returns the size of the extras field for the memcache request.
@@ -156,8 +169,8 @@ func CheckError(resp *Message) error {
 	switch {
 	case resp.Status == StatusOK:
 		return nil
-	case resp.Status == StatusUnknownEndpoint:
-		return ErrUnknownEndpoint
+	case resp.Status == StatusUnknownOperation:
+		return ErrUnknownOperation
 	case resp.Status == StatusInternalServerError:
 		return ErrInternalServerError
 	}

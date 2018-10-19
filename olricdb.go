@@ -230,7 +230,7 @@ func (db *OlricDB) Start() error {
 
 // TODO: This is a temporary solution for easy development.
 func (db *OlricDB) listenAndServe() {
-	db.server.RegisterEndpoint(protocol.OpExPut, db.exPutEndpoint)
+	db.server.RegisterOperation(protocol.OpExPut, db.exPutOperation)
 	if err := db.server.ListenAndServe(); err != nil {
 		db.logger.Printf("[ERROR] Failed to run ListenAndServe: %v", err)
 	}

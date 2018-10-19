@@ -25,21 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/buraksezer/olricdb/protocol"
 	"github.com/julienschmidt/httprouter"
 )
-
-func (db *OlricDB) exPutEndpoint(req *protocol.Message) *protocol.Message {
-	err := db.put(req.DMap, string(req.Key), req.Value, nilTimeout)
-	if err != nil {
-		return req.Error(protocol.StatusInternalServerError, err)
-	}
-	var resp protocol.Message
-	resp.Magic = protocol.MagicRes
-	resp.Op = req.Op
-	resp.Status = protocol.StatusOK
-	return &resp
-}
 
 func (h *httpTransport) handleExGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	name := ps.ByName("name")

@@ -1,5 +1,5 @@
 [olricd]
-partitionCount = 3
+partitionCount = 271
 backupCount = 1
 backupMode = 0
 name = "0.0.0.0:3320"
