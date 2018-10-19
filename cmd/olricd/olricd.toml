@@ -1,10 +1,10 @@
 [olricd]
-partitionCount = 271
+partitionCount = 3
 backupCount = 1
 backupMode = 0
 name = "0.0.0.0:3320"
-certFile = "/home/burak/Projects/server.pem"
-keyFile = "/home/burak/Projects/server.key"
+#certFile = "/home/burak/Projects/server.pem"
+#keyFile = "/home/burak/Projects/server.key"
 serializer = "gob"
 
 [logging]

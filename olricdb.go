@@ -25,6 +25,7 @@ import (
 
 	"github.com/buraksezer/consistent"
 	"github.com/buraksezer/olricdb/internal/transport"
+	"github.com/buraksezer/olricdb/protocol"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/logutils"
 	"github.com/hashicorp/memberlist"
@@ -229,6 +230,7 @@ func (db *OlricDB) Start() error {
 
 // TODO: This is a temporary solution for easy development.
 func (db *OlricDB) listenAndServe() {
+	db.server.RegisterEndpoint(protocol.OpExPut, db.exPutEndpoint)
 	if err := db.server.ListenAndServe(); err != nil {
 		db.logger.Printf("[ERROR] Failed to run ListenAndServe: %v", err)
 	}

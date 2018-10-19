@@ -15,9 +15,9 @@
 package transport
 
 import (
-	"encoding/binary"
 	"net"
 
+	"github.com/buraksezer/olricdb/protocol"
 	"github.com/buraksezer/pool"
 )
 
@@ -49,46 +49,36 @@ func (c *Client) Close() {
 	c.pool.Close()
 }
 
-func (c *Client) SendMsg(m *msg) (*msg, error) {
+func (c *Client) Request(op protocol.OpCode, m *protocol.Message) (*protocol.Message, error) {
 	buf := c.bufpool.Get()
 	defer c.bufpool.Put(buf)
 
-	m.Magic = magicSend
-	m.Op = OpExPut
-	m.DMapLen = uint16(len(m.dmap))
-	m.KeyLen = uint16(len(m.key))
-	m.ExtraLen = 0
-	m.BodyLen = uint32(len(m.dmap) + len(m.key) + len(m.value) + int(m.ExtraLen))
-	err := binary.Write(buf, binary.BigEndian, m.header)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range m.extras {
-		err = binary.Write(buf, binary.BigEndian, e)
-		if err != nil {
-			return nil, err
-		}
-	}
-	_, err = buf.WriteString(m.dmap)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = buf.Write(m.value)
-	if err != nil {
-		return nil, err
-	}
+	m.Magic = protocol.MagicReq
+	m.Op = op
+	m.DMapLen = uint16(len(m.DMap))
+	m.KeyLen = uint16(len(m.Key))
+	m.ExtraLen = protocol.SizeOfExtras(m.Extras)
+	m.BodyLen = uint32(len(m.DMap) + len(m.Key) + len(m.Value) + int(m.ExtraLen))
 
 	conn, err := c.pool.Get()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-
-	_, err = buf.WriteTo(conn)
+	err = m.Write(conn, buf)
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Wait for response
-	return nil, nil
+
+	var resp protocol.Message
+	header := make([]byte, 12)
+	err = resp.Read(conn, header)
+	if err != nil {
+		return nil, err
+	}
+	err = protocol.CheckError(&resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }

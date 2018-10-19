@@ -3,6 +3,8 @@ package transport
 import (
 	"net"
 	"testing"
+
+	"github.com/buraksezer/olricdb/protocol"
 )
 
 func newTestServer() (*Server, func() net.Addr) {
@@ -32,10 +34,13 @@ func TestMessaging_Put(t *testing.T) {
 
 	bkey := []byte("mykey")
 	value := []byte("myvalue")
-	m := &msg{
-		dmap:  "mydmap",
-		key:   bkey,
-		value: value,
+	m := &protocol.Message{
+		DMap:  "mydmap",
+		Key:   bkey,
+		Value: value,
 	}
-	c.SendMsg(m)
+	_, err = c.Request(protocol.OpExPut, m)
+	if err != nil {
+		t.Errorf("Expected nil. Got: %v", err)
+	}
 }

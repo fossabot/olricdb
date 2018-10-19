@@ -15,24 +15,32 @@
 package transport
 
 import (
+	"bytes"
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"os"
 	"sync"
+
+	"github.com/buraksezer/olricdb/protocol"
 )
+
+type endpoints struct {
+	m map[protocol.OpCode]protocol.Endpoint
+}
 
 // Server implements a TCP server.
 type Server struct {
-	addr     string
-	logger   *log.Logger
-	wg       sync.WaitGroup
-	listener *net.TCPListener
-	connCh   chan net.Conn
-	StartCh  chan struct{}
-	ctx      context.Context
-	cancel   context.CancelFunc
+	addr      string
+	bufpool   *BufPool
+	endpoints endpoints
+	logger    *log.Logger
+	wg        sync.WaitGroup
+	listener  *net.TCPListener
+	connCh    chan net.Conn
+	StartCh   chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 func NewServer(addr string, logger *log.Logger) *Server {
@@ -41,13 +49,19 @@ func NewServer(addr string, logger *log.Logger) *Server {
 		logger = log.New(os.Stderr, "", log.LstdFlags)
 	}
 	return &Server{
-		addr:    addr,
-		logger:  logger,
-		connCh:  make(chan net.Conn),
-		StartCh: make(chan struct{}),
-		ctx:     ctx,
-		cancel:  cancel,
+		endpoints: endpoints{m: make(map[protocol.OpCode]protocol.Endpoint)},
+		addr:      addr,
+		bufpool:   NewBufPool(),
+		logger:    logger,
+		connCh:    make(chan net.Conn),
+		StartCh:   make(chan struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
+}
+
+func (s *Server) RegisterEndpoint(op protocol.OpCode, e protocol.Endpoint) {
+	s.endpoints.m[op] = e
 }
 
 func (s *Server) handleConn(conn net.Conn) {
@@ -69,16 +83,47 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 	}()
 
-	b := make([]byte, 8192)
+	writeErr := func(buf *bytes.Buffer, opcode protocol.OpCode, status protocol.StatusCode, err interface{}) error {
+		var nm protocol.Message
+		switch err.(type) {
+		case string:
+			nm.Value = []byte(err.(string))
+		case error:
+			nm.Value = []byte(err.(error).Error())
+		}
+		nm.Magic = protocol.MagicRes
+		nm.Op = opcode
+		nm.Status = status
+		nm.BodyLen = uint32(len(nm.Value))
+		return nm.Write(conn, buf)
+	}
+	header := make([]byte, protocol.HeaderSize)
 	for {
-		nr, err := conn.Read(b)
+		var m protocol.Message
+		err := m.Read(conn, header)
 		if err != nil {
-			s.logger.Printf(
-				"[DEBUG] Failed to read from TCP connection. Addr: %s, %v",
-				conn.RemoteAddr(), err)
+			s.logger.Printf("[DEBUG] Failed to parse message: %v", err)
 			return
 		}
-		fmt.Println("READ FROM SOCKET: ", string(b), nr)
+
+		buf := s.bufpool.Get()
+		e, ok := s.endpoints.m[m.Op]
+		if !ok {
+			if err = writeErr(buf, m.Op, protocol.StatusUnknownEndpoint, ""); err != nil {
+				s.logger.Printf("[DEBUG] Failed to return error message: %v", err)
+				s.bufpool.Put(buf)
+				return
+			}
+			s.bufpool.Put(buf)
+			continue
+		}
+		resp := e(&m)
+		err = resp.Write(conn, buf)
+		s.bufpool.Put(buf)
+		if err != nil {
+			s.logger.Printf("[DEBUG] Failed to write message %v", err)
+			return
+		}
 	}
 }
 

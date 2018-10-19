@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/buraksezer/olricdb"
+	"github.com/buraksezer/olricdb/internal/transport"
+	"github.com/buraksezer/olricdb/protocol"
 )
 
 var nilTimeout = 0 * time.Second
@@ -38,6 +40,7 @@ var nilTimeout = 0 * time.Second
 type Client struct {
 	servers    []string
 	client     *http.Client
+	tcpClient  *transport.Client
 	serializer olricdb.Serializer
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -57,7 +60,13 @@ func New(servers []string, c *http.Client, s olricdb.Serializer) (*Client, error
 		s = olricdb.NewGobSerializer()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+
+	tcpClient, err := transport.NewClient("localhost:3422", 1, 1)
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
+		tcpClient:  tcpClient,
 		servers:    servers,
 		client:     c,
 		serializer: s,
@@ -171,6 +180,23 @@ func (c *Client) put(name, key string, value interface{}, timeout time.Duration)
 	}
 	body := bytes.NewReader(data)
 	_, err = c.doRequest(http.MethodPost, target, body)
+	return err
+}
+
+func (c *Client) TPut(name, key string, value interface{}) error {
+	if value == nil {
+		value = struct{}{}
+	}
+	data, err := c.serializer.Marshal(value)
+	if err != nil {
+		return err
+	}
+	m := &protocol.Message{
+		DMap:  name,
+		Key:   []byte(key),
+		Value: data,
+	}
+	_, err = c.tcpClient.Request(protocol.OpExPut, m)
 	return err
 }
 
